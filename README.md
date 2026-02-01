@@ -25,7 +25,7 @@ OpenTelemetry instrumentation for xUnit v3 tests. Automatically wraps tests in d
 
 ## Requirements
 
-- .NET 8.0+
+- **.NET Standard 2.0** compatible runtime (.NET Framework 4.6.1+, .NET Core 2.0+, .NET 5+)
 - **xUnit v3** (not compatible with xUnit v2)
 
 ## Installation

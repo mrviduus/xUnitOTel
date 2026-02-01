@@ -115,8 +115,6 @@ public static class OTelConfigurationExtensions
         metrics
             // Add the custom meter for this library to collect application-specific metrics
             .AddMeter(sourceName)
-            // Add process instrumentation to collect CPU, memory, and other process-level metrics
-            .AddProcessInstrumentation()
             // Add .NET runtime instrumentation to collect GC, thread pool, and JIT metrics
             .AddRuntimeInstrumentation();
     }
