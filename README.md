@@ -9,135 +9,240 @@
 [![NuGet Downloads](https://img.shields.io/nuget/dt/xUnitOTel.svg)](https://www.nuget.org/packages/xUnitOTel/)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
 
-**🎯 What is this?** A tool that helps you see what your tests are doing, like a camera that records everything happening inside your tests!
+OpenTelemetry instrumentation for xUnit v3 tests. Automatically wraps tests in distributed tracing spans with HTTP, SQL, and gRPC instrumentation.
 
-**⚠️ Important:** This package only works with xUnit v3!
+## Table of Contents
 
-## 🌟 What Does It Do?
+- [Requirements](#requirements)
+- [Installation](#installation)
+- [Quick Start](#quick-start)
+- [How It Works](#how-it-works)
+- [Configuration](#configuration)
+- [Viewing Telemetry](#viewing-telemetry)
+- [API Reference](#api-reference)
+- [Troubleshooting](#troubleshooting)
+- [License](#license)
 
-Imagine you're playing with toys and want to know:
-- 🎬 When did you start playing?
-- ⏱️ How long did you play?
-- 🧸 Which toys did you use?
-- 📍 What happened step by step?
+## Requirements
 
-This tool does the same for your code tests!
+- .NET 8.0+
+- **xUnit v3** (not compatible with xUnit v2)
 
-**🚀 Key Features:**
-- **📺 Built-in Test Output**: All telemetry logs appear directly in your test output by default - no extra setup needed!
-- **🔍 HTTP Request Tracing**: See every web call your tests make with timing and response details
-- **⚡ Zero Configuration**: Works out of the box with minimal setup
-- **🎯 Flexible Tracing**: Trace all tests or just specific ones with attributes
-
-## 📦 Installation
-
-Add it to your project:
+## Installation
 
 ```bash
 dotnet add package xUnitOTel
 ```
 
-## 📺 See Your Tests in Action
+## Quick Start
 
-**The best part?** All telemetry data appears directly in your test output by default! No need for external dashboards or complex setup - everything you need is right there in your test results.
+### 1. Create TestSetup fixture
+
+```csharp
+using Microsoft.Extensions.DependencyInjection;
+using Microsoft.Extensions.Hosting;
+using Microsoft.Extensions.Logging;
+using OpenTelemetry.Logs;
+using OpenTelemetry.Metrics;
+using OpenTelemetry.Trace;
+using xUnitOTel.Diagnostics;
+
+public class TestSetup : IAsyncLifetime
+{
+    private IHost _host = null!;
+    public IHost Host => _host;
+
+    public T GetRequiredService<T>() where T : notnull
+        => _host.Services.GetRequiredService<T>();
+
+    public async ValueTask InitializeAsync()
+    {
+        var builder = Microsoft.Extensions.Hosting.Host.CreateApplicationBuilder();
+
+        builder.Services.AddOTelDiagnostics(
+            configureMeterProviderBuilder: m => m.AddOtlpExporter(),
+            configureTracerProviderBuilder: t => t.AddOtlpExporter(),
+            configureLoggingBuilder: options => options.AddOpenTelemetry(o => o.AddOtlpExporter())
+        );
+
+        builder.Services.AddHttpClient();
+
+        _host = builder.Build();
+        await _host.StartAsync();
+    }
+
+    public async ValueTask DisposeAsync()
+    {
+        await _host.StopAsync();
+        _host.Dispose();
+    }
+}
+```
+
+### 2. Enable tracing
+
+Add to any test file to trace all tests in the assembly:
+
+```csharp
+[assembly: Trace]
+[assembly: AssemblyFixture(typeof(TestSetup))]
+```
+
+Or apply `[Trace]` to individual test methods.
+
+### 3. Write tests
+
+```csharp
+public class ApiTests(TestSetup fixture)
+{
+    [Fact]
+    public async Task GetUsers_ReturnsSuccess()
+    {
+        var client = fixture.GetRequiredService<IHttpClientFactory>().CreateClient();
+        var response = await client.GetAsync("https://api.example.com/users");
+        Assert.True(response.IsSuccessStatusCode);
+    }
+}
+```
+
+All HTTP requests, timing, and trace IDs appear in test output automatically.
 
 <p align="center">
   <img src="assets/images/output.png" alt="Test Output Example" width="800">
 </p>
 
-As you can see above, HTTP requests, timing information, and trace IDs are automatically logged to your test output, making debugging and understanding your tests incredibly easy!
+## How It Works
 
-## 🚀 Quick Start
-
-### Step 1: Add Assembly Trace (Trace ALL tests)
-```csharp
-// Add this to any test file to trace ALL tests in your project
-[assembly: Trace]
-[assembly: AssemblyFixture(typeof(TestSetup))]
+```mermaid
+flowchart LR
+    A[Test Method] --> B["[Trace] Attribute"]
+    B --> C[Activity/Span]
+    C --> D[OpenTelemetry]
+    D --> E[OTLP Exporter]
+    E --> F[Aspire Dashboard]
 ```
 
-### Step 2: Create TestSetup
-See our complete working example in [tests/xUnitOTel.Tests/TestSetup.cs](tests/xUnitOTel.Tests/TestSetup.cs)
+1. `TestSetup` creates Host with `AddOTelDiagnostics()` configuring OpenTelemetry
+2. `[Trace]` attribute wraps tests in Activity spans
+3. Spans tagged with `test.class.method`, `test.name`, `test.framework`
+4. HTTP/SQL/gRPC calls auto-instrumented as child spans
+5. Logs attached as Activity events
 
-### Step 3: Write Tests
-See our HTTP client testing example in [tests/xUnitOTel.Tests/WebTests.cs](tests/xUnitOTel.Tests/WebTests.cs)
+## Configuration
 
-**That's it!** Your tests will now show telemetry data in the output.
-```
+### AddOTelDiagnostics Options
 
-**🎉 Benefits:**
-- No need to add `[Trace]` to every test
-- All tests in all classes get tracked automatically
-- Great for existing projects - just add one line!
+| Parameter | Type | Description |
+|-----------|------|-------------|
+| `serviceName` | `string?` | Service name for telemetry (default: entry assembly name) |
+| `configureMeterProviderBuilder` | `Action<MeterProviderBuilder>?` | Configure metrics exporters |
+| `configureTracerProviderBuilder` | `Action<TracerProviderBuilder>?` | Configure trace exporters |
+| `configureLoggingBuilder` | `Action<ILoggingBuilder>?` | Configure log exporters |
 
-### Alternative: Trace Individual Tests
+### Trace Attribute Properties
 
-If you want to trace only specific tests, use the `[Trace]` attribute on individual test methods instead of the assembly-level attribute.
+| Property | Type | Default | Description |
+|----------|------|---------|-------------|
+| `CaptureError` | `bool` | `true` | Capture stderr to test output |
+| `CaptureOut` | `bool` | `true` | Capture stdout to test output |
 
-**📝 Note:** The `[Trace]` attribute won't work without the `TestSetup` configuration!
-```
+### OpenTelemetry Tags
 
-## Viewing the Data of Tests
+| Tag | Description |
+|-----|-------------|
+| `test.class.method` | Full test class and method name |
+| `test.name` | Test method name |
+| `test.framework` | Always "xunit" |
+| `testrun.id` | Unique ID for test run session |
 
-The `xUnitOTel` package, when configured with OTLP exporters as shown in the example below, outputs span data via gRPC to `localhost:4317`. To visualize this telemetry data, you can use the **Aspire Dashboard** which provides a user-friendly interface for viewing traces, metrics, and logs.
+## Viewing Telemetry
 
-### Using Aspire Dashboard with Docker
+### Aspire Dashboard (Recommended)
 
-Run the Aspire Dashboard in a Docker container to view your test telemetry:
+Start the dashboard:
 
 ```bash
-docker run -it -p 18888:18888 -p 4317:18889 -d -e DOTNET_DASHBOARD_UNSECURED_ALLOW_ANONYMOUS=true --name aspire-dashboard mcr.microsoft.com/dotnet/nightly/aspire-dashboard:8.0.0
+docker run -d \
+  -p 18888:18888 \
+  -p 4317:18889 \
+  -e DOTNET_DASHBOARD_UNSECURED_ALLOW_ANONYMOUS=true \
+  --name aspire-dashboard \
+  mcr.microsoft.com/dotnet/aspire-dashboard:9.0
 ```
 
-Then navigate to **http://localhost:18888** to access the dashboard.
+Open http://localhost:18888 to view traces.
 
+### Console Exporter
 
+For simple debugging without external tools:
 
-## 🤔 Common Questions
+```csharp
+builder.Services.AddOTelDiagnostics(
+    configureTracerProviderBuilder: t => t.AddConsoleExporter()
+);
+```
 
-### "Why do I need a Host?"
-Think of the Host as a mini-application that runs during your tests. It's like having a toy kitchen when you want to play cooking - you need the kitchen (Host) to use the stove (HTTP client) and other tools!
+## API Reference
 
-The Host is also where the OpenTelemetry system lives - it's like the control room that watches and records everything.
+### TraceAttribute
 
-### "What's OpenTelemetry?"
-It's like a security camera system for your code. It watches what happens and tells you about it!
+xUnit `BeforeAfterTestAttribute` that wraps tests in OpenTelemetry spans.
 
-### "Do I always need the Collector?"
-No! For simple testing, use `AddConsoleExporter()` to see traces right in your test output. The Collector is for when you want to send traces to special monitoring tools like Jaeger or Zipkin.
+```csharp
+// Assembly-level (all tests)
+[assembly: Trace]
 
-### "Why doesn't [Trace] work by itself?"
-The `[Trace]` attribute is like a light switch - but first you need to install the electrical system (`AddOTelDiagnostics()`)! Without the setup, the switch has nothing to connect to.
+// Method-level
+[Fact]
+[Trace]
+public void MyTest() { }
+```
 
-### "Should I use [assembly: Trace] or individual [Trace] attributes?"
-- Use `[assembly: Trace]` when you want to trace everything (recommended for most projects)
-- Use individual `[Trace]` attributes when you only want to trace specific tests
+### OTelConfigurationExtensions
 
-## 📋 Requirements
+Entry point for configuring OpenTelemetry.
 
-- .NET 8.0 or later
-- xUnit v3 (won't work with xUnit v2!)
+```csharp
+services.AddOTelDiagnostics(
+    serviceName: "MyTests",
+    configureTracerProviderBuilder: t => t.AddOtlpExporter()
+);
+```
 
-## 🆘 Need Help?
+### ApplicationDiagnostics
 
-- 🐛 [Report Problems](https://github.com/mrviduus/xUnitOTel/issues)
-- 📧 [Email Us](mailto:mrviduus@gmail.com)
+Static `ActivitySource` for creating custom spans:
 
-## 🎉 Quick Wins
+```csharp
+using var activity = ApplicationDiagnostics.ActivitySource.StartActivity("CustomOperation");
+// ... operation code
+```
 
-1. **See test duration**: Know which tests are slow
-2. **Track HTTP calls**: See all web requests your test makes
-3. **Find failures**: Quickly see what went wrong
-4. **Understand flow**: See the order of operations
+## Troubleshooting
 
-## 📚 More Examples
+### [Trace] attribute has no effect
 
-Check out our [examples folder](https://github.com/mrviduus/xUnitOTel/tree/main/examples) for:
-- Testing with databases
-- Testing microservices
-- Complex scenarios
-- CI/CD integration
+The attribute requires OpenTelemetry to be configured via `AddOTelDiagnostics()`. Ensure your `TestSetup` fixture is properly registered with `[assembly: AssemblyFixture(typeof(TestSetup))]`.
+
+### No spans appearing in dashboard
+
+1. Verify OTLP endpoint is reachable (default: `localhost:4317`)
+2. Check that `AddOtlpExporter()` is configured
+3. Ensure Aspire Dashboard is running
+
+### xUnit v2 compatibility
+
+This package only supports xUnit v3. For xUnit v2, consider upgrading or using a different instrumentation approach.
+
+### Missing HTTP/SQL instrumentation
+
+`AddOTelDiagnostics()` automatically adds instrumentation for:
+- `System.Net.Http` (HttpClient)
+- `System.Data.SqlClient` / `Microsoft.Data.SqlClient`
+- gRPC clients
+
+Ensure these libraries are used via dependency injection from the Host.
 
 ## License
 
-This project is licensed under the MIT License - see the [LICENSE](LICENSE) file for details.
+MIT License - see [LICENSE](LICENSE) for details.
