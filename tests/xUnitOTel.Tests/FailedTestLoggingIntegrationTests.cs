@@ -7,6 +7,7 @@ public class FailedTestLoggingIntegrationTests
 {
     private readonly HttpClient _httpClient;
     private readonly ILogger<FailedTestLoggingIntegrationTests> _logger;
+    private static CancellationToken CT => TestContext.Current.CancellationToken;
 
     public FailedTestLoggingIntegrationTests(TestSetup setup)
     {
@@ -20,7 +21,7 @@ public class FailedTestLoggingIntegrationTests
     {
         _logger.LogInformation("Test1: Starting HTTP request to Google");
 
-        var response = await _httpClient.GetAsync("https://www.google.com");
+        var response = await _httpClient.GetAsync("https://www.google.com", CT);
         _logger.LogInformation("Test1: Got response {StatusCode}", response.StatusCode);
 
         _logger.LogWarning("Test1: About to fail intentionally");
@@ -32,7 +33,7 @@ public class FailedTestLoggingIntegrationTests
     {
         _logger.LogInformation("Test2: Starting HTTP request to GitHub");
 
-        var response = await _httpClient.GetAsync("https://api.github.com");
+        var response = await _httpClient.GetAsync("https://api.github.com", CT);
         _logger.LogInformation("Test2: Got response {StatusCode}", response.StatusCode);
 
         _logger.LogError("Test2: Simulating an error condition");
@@ -44,10 +45,10 @@ public class FailedTestLoggingIntegrationTests
     {
         _logger.LogInformation("Test3: Starting multiple HTTP requests");
 
-        var google = await _httpClient.GetAsync("https://www.google.com");
+        var google = await _httpClient.GetAsync("https://www.google.com", CT);
         _logger.LogInformation("Test3: Google responded with {StatusCode}", google.StatusCode);
 
-        var github = await _httpClient.GetAsync("https://api.github.com");
+        var github = await _httpClient.GetAsync("https://api.github.com", CT);
         _logger.LogInformation("Test3: GitHub responded with {StatusCode}", github.StatusCode);
 
         _logger.LogCritical("Test3: Critical failure incoming!");
@@ -58,10 +59,10 @@ public class FailedTestLoggingIntegrationTests
     public async Task Test4_FetchWithDelay_AndFail()
     {
         _logger.LogInformation("Test4: Starting with delay");
-        await Task.Delay(100);
+        await Task.Delay(100, CT);
 
         _logger.LogDebug("Test4: Delay completed, fetching httpbin");
-        var response = await _httpClient.GetAsync("https://httpbin.org/get");
+        var response = await _httpClient.GetAsync("https://httpbin.org/get", CT);
         _logger.LogInformation("Test4: httpbin responded with {StatusCode}", response.StatusCode);
 
         _logger.LogWarning("Test4: This test will fail now");
@@ -75,7 +76,7 @@ public class FailedTestLoggingIntegrationTests
 
         try
         {
-            var response = await _httpClient.GetAsync("https://www.google.com");
+            var response = await _httpClient.GetAsync("https://www.google.com", CT);
             _logger.LogInformation("Test5: Got {StatusCode}", response.StatusCode);
 
             throw new InvalidOperationException("Test5: Simulated exception");
