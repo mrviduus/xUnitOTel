@@ -18,6 +18,7 @@ OpenTelemetry instrumentation for xUnit v3 tests. Automatically wraps tests in d
 - [Quick Start](#quick-start)
 - [How It Works](#how-it-works)
 - [Configuration](#configuration)
+- [Failed Test Logging](#failed-test-logging)
 - [Viewing Telemetry](#viewing-telemetry)
 - [API Reference](#api-reference)
 - [Troubleshooting](#troubleshooting)
@@ -154,6 +155,59 @@ flowchart LR
 | `test.name` | Test method name |
 | `test.framework` | Always "xunit" |
 | `testrun.id` | Unique ID for test run session |
+
+## Failed Test Logging
+
+Automatically exports failed test logs to JSON files for LLM analysis, CI/CD debugging, or archiving.
+
+### Enable
+
+```csharp
+builder.Services.AddOTelDiagnostics(
+    configureFailedTestLogging: opts => {
+        opts.OutputDirectory = "test-failures";
+    }
+);
+```
+
+### Options
+
+| Option | Default | Description |
+|--------|---------|-------------|
+| `Enabled` | `true` | Enable/disable feature |
+| `OutputDirectory` | `"logs"` | Where to save JSON files |
+
+### Output
+
+File naming: `{TestClass}.{TestName}_{yyyyMMdd_HHmmss}.json`
+
+```json
+{
+  "traceId": "abc123...",
+  "testClass": "ApiTests",
+  "testName": "GetUsers_ReturnsSuccess",
+  "timestamp": "2025-01-15T10:30:00Z",
+  "failure": {
+    "messages": ["Expected: true, Actual: false"],
+    "stackTraces": ["at ApiTests.GetUsers_ReturnsSuccess()..."]
+  },
+  "logs": [
+    {
+      "timestamp": "2025-01-15T10:29:59Z",
+      "level": "Information",
+      "category": "System.Net.Http.HttpClient",
+      "message": "Sending HTTP request GET https://api.example.com/users",
+      "exception": null
+    }
+  ]
+}
+```
+
+### Notes
+
+- Only failed tests create files (passing tests are ignored)
+- Works with parallel test execution (AsyncLocal isolation)
+- HTTP/SQL/gRPC instrumentation logs included automatically
 
 ## Viewing Telemetry
 

@@ -37,13 +37,23 @@ public static class OTelConfigurationExtensions
         // Optional action to configure the tracer provider builder (adds custom sources, exporters)
         Action<TracerProviderBuilder>? configureTracerProviderBuilder = null,
         // Optional action to configure the logging builder (adds custom providers, filters)
-        Action<ILoggingBuilder>? configureLoggingBuilder = null)
+        Action<ILoggingBuilder>? configureLoggingBuilder = null,
+        // Optional action to configure failed test log export
+        Action<FailedTestLogOptions>? configureFailedTestLogging = null)
     {
         // Register the test output helper accessor as a singleton service for dependency injection
         // This service provides access to xUnit's ITestOutputHelper for logging test output
         services.TryAddSingleton<ITestOutputHelperAccessor, TestOutputHelperAccessor>();
         // Register xUnit's test context accessor to enable access to current test context
         services.TryAddSingleton<Xunit.ITestContextAccessor>(_ => Xunit.v3.TestContextAccessor.Instance);
+
+        // Configure failed test log export if provided
+        if (configureFailedTestLogging != null)
+        {
+            var options = new FailedTestLogOptions();
+            configureFailedTestLogging(options);
+            FailedTestLogExporter.Instance.Configure(options);
+        }
 
         // Configure OpenTelemetry with the specified activity source name and custom configuration actions
         // This sets up the core OpenTelemetry services with tracing, metrics, and resource configuration
@@ -167,7 +177,8 @@ public static class OTelConfigurationExtensions
                 options.ParseStateValues = true;
                 // Add custom processor to attach log entries as events to the current activity
                 options.AddProcessor(new ActivityEventLogProcessor());
-                // Only add OTLP exporter in debug builds to reduce overhead in production tests
+                // Add processor to capture logs for failed test JSON export
+                options.AddProcessor(new FailedTestLogProcessor());
             });
 
             // Add debug logging provider for development scenarios
