@@ -24,6 +24,10 @@
   </PropertyGroup>
 
   <ItemGroup>
+    <InternalsVisibleTo Include="xUnitOTel.Tests" />
+  </ItemGroup>
+
+  <ItemGroup>
     <Compile Remove="xUnitOTel.Tests\**" />
     <EmbeddedResource Remove="xUnitOTel.Tests\**" />
     <None Remove="xUnitOTel.Tests\**" />

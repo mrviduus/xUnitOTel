@@ -1,6 +1,7 @@
 using System.Diagnostics;
 using System.Reflection;
 using xUnitOTel.Diagnostics;
+using xUnitOTel.Logging;
 using Xunit.Internal;
 using Xunit.v3;
 
@@ -17,7 +18,7 @@ public class TraceAttribute : BeforeAfterTestAttribute
         new ConsoleCaptureTestOutputWriter(TestContextAccessor.Instance, captureError: true, captureOut: true),
         LazyThreadSafetyMode.ExecutionAndPublication);
 
-    private Activity? _activity;
+    private static readonly AsyncLocal<Activity?> _activity = new();
 
     public bool CaptureError { get; set; } = true;
     public bool CaptureOut { get; set; } = true;
@@ -30,23 +31,43 @@ public class TraceAttribute : BeforeAfterTestAttribute
             ? $"{methodUnderTest.DeclaringType.FullName}.{methodUnderTest.Name}"
             : methodUnderTest.Name;
 
-        _activity = ApplicationDiagnostics.ActivitySource.StartActivity(activityName, ActivityKind.Internal);
+        _activity.Value = ApplicationDiagnostics.ActivitySource.StartActivity(activityName, ActivityKind.Internal);
 
-        if (_activity is not null)
+        if (_activity.Value is not null)
         {
-            _activity.SetTag(OpenTelemetryTagNames.TestClassMethod, activityName);
-            _activity.SetTag(OpenTelemetryTagNames.TestName, methodUnderTest.Name);
-            _activity.SetTag(OpenTelemetryTagNames.TestFramework, OpenTelemetryTagNames.TestFrameworkXUnit);
+            _activity.Value.SetTag(OpenTelemetryTagNames.TestClassMethod, activityName);
+            _activity.Value.SetTag(OpenTelemetryTagNames.TestName, methodUnderTest.Name);
+            _activity.Value.SetTag(OpenTelemetryTagNames.TestFramework, OpenTelemetryTagNames.TestFrameworkXUnit);
         }
     }
 
     public override void After(MethodInfo methodUnderTest, IXunitTest test)
     {
-        if (_activity is null) return;
+        var activity = _activity.Value;
+        if (activity is null) return;
 
-        _activity.Stop();
-        var traceId = _activity.TraceId.ToString();
+        activity.Stop();
+        var traceId = activity.TraceId.ToString();
         TestContextAccessor.Instance.Current?.TestOutputHelper?.WriteLine($"Trace ID: {traceId}");
-        _activity.Dispose();
+
+        var testState = Xunit.TestContext.Current?.TestState;
+        var testFailed = testState?.Result == Xunit.TestResult.Failed;
+
+        if (testFailed && testState != null)
+        {
+            FailedTestLogExporter.Instance.ExportToFile(
+                traceId,
+                methodUnderTest.Name,
+                methodUnderTest.DeclaringType?.Name,
+                testState.ExceptionMessages,
+                testState.ExceptionStackTraces);
+        }
+        else
+        {
+            FailedTestLogExporter.Instance.Clear(traceId);
+        }
+
+        activity.Dispose();
+        _activity.Value = null;
     }
 }
