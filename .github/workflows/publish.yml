@@ -23,7 +23,11 @@ defaults:
 jobs:
   publish:
     runs-on: ubuntu-latest
-    
+
+    permissions:
+      contents: read
+      id-token: write   # OIDC token for NuGet Trusted Publishing
+
     steps:
     - name: Checkout repository
       uses: actions/checkout@v4
@@ -82,9 +86,19 @@ jobs:
       with:
         nuget-version: 'latest'
 
+    # Trusted Publishing (OIDC) - no long-lived API key. The nuget.org policy is bound to
+    # owner=mrviduus, repo=xUnitOTel, workflow=publish.yml: renaming this file breaks publishing.
+    # The temporary key lives 1 hour, so login must stay adjacent to the push step.
+    - name: NuGet login (OIDC -> temporary API key)
+      if: github.event_name == 'push' && github.ref == 'refs/heads/main' || github.event_name == 'release' || github.event_name == 'workflow_dispatch'
+      uses: NuGet/login@v1
+      id: nuget-login
+      with:
+        user: mrviduus
+
     - name: Publish to NuGet
       if: github.event_name == 'push' && github.ref == 'refs/heads/main' || github.event_name == 'release' || github.event_name == 'workflow_dispatch'
-      run: dotnet nuget push "${{ env.NuGetDirectory }}/*.nupkg" --api-key "${{ secrets.NUGET_API_KEY }}" --source https://api.nuget.org/v3/index.json --skip-duplicate
+      run: dotnet nuget push "${{ env.NuGetDirectory }}/*.nupkg" --api-key "${{ steps.nuget-login.outputs.NUGET_API_KEY }}" --source https://api.nuget.org/v3/index.json --skip-duplicate
 
     - name: Upload package artifacts
       uses: actions/upload-artifact@v4
