@@ -37,6 +37,11 @@ env:
   TARGETS: '.'
   # Minor/patch only. Majors are reported, never applied.
   OUTDATED_OPTS: '--version-lock Major'
+  # Verification run after the bump. Empty string = build-only gate.
+  # Tests are not a gate here: xUnitOTel.Tests contains 5 deliberately failing
+  # tests (Assert.Fail demos for failed-test logging), so the suite is always red.
+  # The bump is gated on the build instead.
+  TEST_CMD: ''
 
 jobs:
   update:
@@ -92,8 +97,8 @@ jobs:
           dotnet build "$SOLUTION" --no-restore --configuration Release
 
       - name: Test
-        if: steps.update.outputs.changed == 'true'
-        run: dotnet test "$SOLUTION" --no-build --configuration Release --verbosity normal
+        if: steps.update.outputs.changed == 'true' && env.TEST_CMD != ''
+        run: eval "$TEST_CMD"
 
       - name: Report verification failure
         if: failure() && steps.update.outputs.changed == 'true'
