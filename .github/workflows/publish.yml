@@ -37,7 +37,7 @@ jobs:
     - name: Setup .NET
       uses: actions/setup-dotnet@v4
       with:
-        dotnet-version: '8.0.x'
+        dotnet-version: '10.0.x'
 
     - name: Extract version
       run: |
@@ -73,7 +73,13 @@ jobs:
       run: dotnet build "${{ env.CSPROJ_FILE }}" --configuration Release --no-restore
 
     - name: Run tests
-      run: dotnet test "${{ env.CSPROJ_FILE }}" --no-restore --configuration Release --verbosity normal
+      # CSPROJ_FILE is the library, which holds no tests - run the test project instead.
+      # FailedTestLoggingIntegrationTests fails by design (see build.yml).
+      run: |
+        dotnet test \
+          --project tests/xUnitOTel.Tests/xUnitOTel.Tests.csproj \
+          --configuration Release \
+          --filter-not-class "xUnitOTel.Tests.FailedTestLoggingIntegrationTests"
 
     - name: Ensure NuGet Directory Exists
       run: mkdir -p "${{ env.NuGetDirectory }}"

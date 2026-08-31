@@ -38,10 +38,9 @@ env:
   # Minor/patch only. Majors are reported, never applied.
   OUTDATED_OPTS: '--version-lock Major'
   # Verification run after the bump. Empty string = build-only gate.
-  # Tests are not a gate here: xUnitOTel.Tests contains 5 deliberately failing
-  # tests (Assert.Fail demos for failed-test logging), so the suite is always red.
-  # The bump is gated on the build instead.
-  TEST_CMD: ''
+  # FailedTestLoggingIntegrationTests fails by design (Assert.Fail demos for the failed-test
+  # log exporter), so it is filtered out - same filter the CI workflows use.
+  TEST_CMD: 'dotnet test --solution xUnitOTel.sln --configuration Release --no-build --filter-not-class "xUnitOTel.Tests.FailedTestLoggingIntegrationTests"'
 
 jobs:
   update:

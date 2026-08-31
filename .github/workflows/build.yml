@@ -12,7 +12,7 @@ jobs:
     runs-on: ubuntu-latest
     strategy:
       matrix:
-        dotnet-version: ['8.0.x']
+        dotnet-version: ['10.0.x']
 
     steps:
     - uses: actions/checkout@v4
@@ -31,7 +31,14 @@ jobs:
       run: dotnet build --no-restore --configuration Release
 
     - name: Test
-      run: dotnet test --no-build --configuration Release --verbosity normal --collect:"XPlat Code Coverage" --results-directory ./coverage
+      # FailedTestLoggingIntegrationTests is a demo of the failed-test log exporter: every test
+      # in it calls Assert.Fail on purpose, so it is excluded from the CI gate.
+      run: |
+        dotnet test \
+          --solution xUnitOTel.sln \
+          --no-build \
+          --configuration Release \
+          --filter-not-class "xUnitOTel.Tests.FailedTestLoggingIntegrationTests"
 
 
     - name: Pack NuGet package
